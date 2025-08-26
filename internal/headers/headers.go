@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"httpfromtcp/internal/request"
+	"regexp"
 )
 
 var INVALID_HEADER = fmt.Errorf("invalid header")
@@ -14,28 +15,42 @@ func NewHeaders() Headers {
 	return Headers{}
 }
 
-func (h Headers) Parse(data []byte) (n int, done bool, err error) {
-	bufIndex := bytes.Index(data, request.SEPARATOR)
-	if bufIndex == -1 {
+func (h Headers) Parse(data []byte) (int, bool, error) {
+	idx := bytes.Index(data, request.SEPARATOR)
+	if idx == -1 {
 		return 0, false, nil
 	}
-	if bufIndex == 0 {
+	if idx == 0 {
 		return 0, true, nil
 	}
 
-	line := data[:bufIndex]
-
-	index := bytes.Index(line, []byte(":"))
-	if index == -1 {
+	data = data[:idx]
+	parts := bytes.SplitN(data, []byte(":"), 2)
+	if len(parts) != 2 {
 		return 0, false, INVALID_HEADER
 	}
-	fieldName := line[:index]
+
+	fieldName := parts[0]
 	if fieldName[len(fieldName)-1] == ' ' {
 		return 0, false, INVALID_HEADER
 	}
-	fieldName = bytes.Trim(fieldName, " ")
-	value := bytes.Trim(line[index+len(":"):], " ")
+	fieldName = bytes.ToLower(bytes.TrimSpace(fieldName))
+	m, err := regexp.Match(`^[a-z0-9!#$%&'*+\-.^_\x60|~]*$`, fieldName)
 
-	h[string(fieldName)] = string(value)
-	return bufIndex + len(request.SEPARATOR), false, nil
+	if err != nil {
+		return 0, false, err
+	}
+	if !m {
+		return 0, false, INVALID_HEADER
+	}
+	value := string(bytes.TrimSpace(parts[1]))
+
+	header := h[string(fieldName)]
+
+	if header != "" {
+		value = header + ", " + value
+	}
+
+	h[string(fieldName)] = value
+	return idx + len(request.SEPARATOR), false, nil
 }
